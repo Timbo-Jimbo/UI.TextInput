@@ -355,29 +355,6 @@ static UITextContentType TJContentTypeFor(int32_t content)
 
 #pragma mark - The proxy view
 
-@interface TJTextInputView ()
-
-@property (nonatomic) UITextAutocapitalizationType autocapitalizationType;
-@property (nonatomic) UITextAutocorrectionType autocorrectionType;
-@property (nonatomic) UITextSpellCheckingType spellCheckingType;
-@property (nonatomic) UITextSmartQuotesType smartQuotesType;
-@property (nonatomic) UITextSmartDashesType smartDashesType;
-@property (nonatomic) UITextSmartInsertDeleteType smartInsertDeleteType;
-@property (nonatomic) UIKeyboardType keyboardType;
-@property (nonatomic) UIKeyboardAppearance keyboardAppearance;
-@property (nonatomic) UIReturnKeyType returnKeyType;
-@property (nonatomic) BOOL enablesReturnKeyAutomatically;
-@property (nonatomic, getter=isSecureTextEntry) BOOL secureTextEntry;
-@property (nonatomic, copy) UITextContentType textContentType;
-#if TJTI_SDK_17
-@property (nonatomic) UITextInlinePredictionType inlinePredictionType API_AVAILABLE(ios(17.0));
-#endif
-#if TJTI_SDK_18
-@property (nonatomic) UIWritingToolsBehavior writingToolsBehavior API_AVAILABLE(ios(18.0));
-#endif
-
-@end
-
 @implementation TJTextInputView
 {
     NSMutableString* _text;
@@ -412,6 +389,26 @@ static UITextContentType TJContentTypeFor(int32_t content)
 
 @synthesize inputDelegate = _inputDelegate;
 @synthesize markedTextStyle = _markedTextStyle;
+// UITextInputTraits' properties: declared by the protocol (UITextInput adopts it), so the class synthesizes them itself.
+// Redeclared in a class extension, they would clash with the protocol's declarations in the primary interface.
+@synthesize autocapitalizationType = _autocapitalizationType;
+@synthesize autocorrectionType = _autocorrectionType;
+@synthesize spellCheckingType = _spellCheckingType;
+@synthesize smartQuotesType = _smartQuotesType;
+@synthesize smartDashesType = _smartDashesType;
+@synthesize smartInsertDeleteType = _smartInsertDeleteType;
+@synthesize keyboardType = _keyboardType;
+@synthesize keyboardAppearance = _keyboardAppearance;
+@synthesize returnKeyType = _returnKeyType;
+@synthesize enablesReturnKeyAutomatically = _enablesReturnKeyAutomatically;
+@synthesize secureTextEntry = _secureTextEntry;
+@synthesize textContentType = _textContentType;
+#if TJTI_SDK_17
+@synthesize inlinePredictionType = _inlinePredictionType;
+#endif
+#if TJTI_SDK_18
+@synthesize writingToolsBehavior = _writingToolsBehavior;
+#endif
 
 - (instancetype)initWithSession:(int32_t)session config:(const TJTIConfig*)config
 {

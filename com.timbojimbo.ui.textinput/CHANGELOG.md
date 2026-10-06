@@ -1,3 +1,9 @@
+## [Unreleased]
+
+### Fixed
+
+- iOS: the plugin compiles in Xcode. The proxy view's `UITextInputTraits` properties (keyboard type, return key, autocorrection and the rest) are synthesized in its implementation rather than redeclared in a class extension, which clang rejects because adopting `UITextInput` already declares them
+
 ## [0.1.0] - 06/10/2026
 
 ### Added

@@ -1,0 +1,12 @@
+## [0.1.0] - 06/10/2026
+
+### Added
+
+- The first version: text fields drawn by the UI and UI Text packages and typed into with the platform's own keyboard, as browsers and Flutter do
+- `TextInputSystem`: connects one `ITextInputClient` at a time to the platform's keyboard through a small native input client, with sessions, serials and a mirror of the value on the native side so the keyboard's own edits are never echoed back and it is restarted only when a composition is changed from our side or the text is replaced as a whole. Tracks the software keyboard's docked height frame by frame and hands it to layout (`LayoutSystem.KeyboardHeight`), as SwiftUI's keyboard safe area. `SimulateSoftKeyboard` pretends a keyboard where there is none
+- iOS input client: a hidden `UITextInput` view per editing session (marked text, `inputDelegate` notifications only for our own changes, traits from the field's config, return key, grapheme-aware delete, the system edit menu with Paste that doesn't prompt, dictation's audio handed back), and a keyboard tracker that follows UIKit's own keyboard spring
+- Android input client: a 1×1 view whose `InputConnection` edits a mirror `Editable` (nested batch edits, `updateSelection` after every change, extracted-text monitoring for Samsung, cursor anchor info, the floating edit toolbar, restart only when needed), keyboard height from `WindowInsetsAnimation` on Android 11 and up and the visible frame below, events handed to Unity's thread through a polled queue; GameActivity and Activity entry points
+- Desktop and editor input: typed text and editing keys from the Input System with the platform's shortcuts and key repeat, and the IME through the legacy composition properties Unity's own UIs use
+- `TextField`: a `Selectable` that edits a `TextBlock` in a clipping, scrolling viewport, with its own caret, selection, composing underline and selection handles; single-line fields scroll sideways, multi-line ones grow on a spring up to a number of lines; touch, mouse and keyboard editing, undo, a length limit applied on commit, secure entry; works with the focus system (Submit begins, Escape or B ends, Tab moves on) and keeps the keyboard up when something else is tapped, as iOS does
+- `TextFieldBuilder.Create`: the nodes a field needs, in one call
+- `TextBoundaries` (grapheme clusters, words, paragraphs, backspace's reach) and `TextEditHistory` (coalescing undo)

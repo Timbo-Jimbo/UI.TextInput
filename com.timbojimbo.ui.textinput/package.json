@@ -1,0 +1,23 @@
+{
+	"name": "com.timbojimbo.ui.textinput",
+	"displayName": "UI Text Input",
+	"version": "0.1.0",
+	"unity": "6000.5",
+	"unityRelease": "0f1",
+	"description": "Text fields drawn by the UI package and the UI Text package, typed into with the platform's own keyboard: autocorrect, predictions, composition and dictation through a small native input client on iOS and Android, as browsers and Flutter do, and the keyboard's height fed to layout as a safe area.",
+	"dependencies": {
+		"com.unity.ugui": "2.0.0",
+		"com.unity.inputsystem": "1.20.0",
+		"com.unity.modules.androidjni": "1.0.0",
+		"com.timbojimbo.ui": "0.4.0",
+		"com.timbojimbo.ui.text": "0.3.0"
+	},
+	"author": {
+		"name": "Timbo Jimbo",
+		"url": "https://timbojimbo.com",
+		"email": "hello@timbojimbo.com"
+	},
+	"changelogUrl": "https://github.com/Timbo-Jimbo/UI.TextInput/blob/main/com.timbojimbo.ui.textinput/CHANGELOG.md",
+	"documentationUrl": "https://github.com/Timbo-Jimbo/UI.TextInput#readme",
+	"licensesUrl": "https://github.com/Timbo-Jimbo/UI.TextInput/blob/main/LICENSE"
+}

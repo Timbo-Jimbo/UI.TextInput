@@ -1,0 +1,19 @@
+{
+    "name": "TimboJimbo.UI.TextInput.Runtime",
+    "rootNamespace": "TimboJimbo.UI.TextInput",
+    "references": [
+        "UnityEngine.UI",
+        "Unity.InputSystem",
+        "TimboJimbo.UI.Runtime",
+        "TimboJimbo.UI.Text.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -180,6 +180,10 @@ namespace TimboJimbo.UI.TextInput
                     if (!string.Equals(flat.Text, _value.Text, StringComparison.Ordinal))
                         Change(flat, record: true, coalesce: false, notify: true);
                 }
+                // Made secure or no longer secure, it may read the other way: a password shows bullets, which have no way
+                // of their own, and reads left to right whatever the keyboard writes.
+                FollowKeyboardDirection();
+                AnchorViewport();
                 ShowValue(animate: false);
                 TextInputSystem.NotifyConfigChanged(this);
             }
@@ -246,6 +250,7 @@ namespace TimboJimbo.UI.TextInput
             if (!_placed)
                 Change(_value.WithSelection(TextSelection.Collapsed(_value.Text.Length)), record: false, coalesce: false, notify: false);
             _editing = true;
+            FollowKeyboardDirection();
             AnchorViewport();
             _blinkFrom = Time.unscaledTime;
             _reveal = true;
@@ -267,7 +272,7 @@ namespace TimboJimbo.UI.TextInput
         /// <summary>
         /// Ends editing: any composition is committed as it stands, the keyboard is given back and the caret, selection
         /// and handles go. Focus stays on the field, as a browser's field keeps it after Escape. A single-line field
-        /// scrolls back to its start, as UITextField does.
+        /// scrolls back to its start (its right, for text read right to left), as UITextField does.
         /// </summary>
         public void EndEditing()
         {
@@ -283,9 +288,29 @@ namespace TimboJimbo.UI.TextInput
             TextInputSystem.End(this);
             HideGraphics();
             AnchorViewport();
-            if (!Multiline && _viewport != null)
-                _viewport.ScrollOffset = Vector2.zero;
+            if (!Multiline)
+                ScrollToLineStart();
             _editingEnded.Invoke();
+        }
+
+        // While it is edited, text with no letter yet (none at all, or only numbers and emoji) reads the way the keyboard
+        // in use writes, as on iOS, where an Arabic keyboard brings an empty field's caret to its right; a secure field's
+        // stays left to right, as Android keeps a password's. Only for text that takes its direction from its letters:
+        // one set outright is left as it is. Once editing ends there is no keyboard to follow, and the way it last wrote
+        // is kept, bar for a field made secure then, whose bullets read left to right still.
+        private void FollowKeyboardDirection()
+        {
+            if (_text == null) return;
+            var direction = _text.Direction;
+            if (direction != TextBlockDirection.Auto && direction != TextBlockDirection.AutoRightToLeft) return;
+            bool keyboardRightToLeft = _editing ? TextInputSystem.KeyboardRightToLeft : direction == TextBlockDirection.AutoRightToLeft;
+            var wanted = keyboardRightToLeft && !_config.IsSecure ? TextBlockDirection.AutoRightToLeft : TextBlockDirection.Auto;
+            if (wanted == direction) return;
+            _text.Direction = wanted;
+            // The text may now read the other way, its caret on the other side.
+            AnchorViewport();
+            if (_editing)
+                _reveal = true;
         }
 
         /// <summary>Selects all the text. Before editing begins, beginning keeps it selected.</summary>
@@ -507,15 +532,38 @@ namespace TimboJimbo.UI.TextInput
         // While the caret is at the end of the text being edited, the viewport keeps to its end as the text grows, so
         // typing there stays in view in the same frame. Otherwise its offset stays as it is as the text changes, and the
         // caret is brought into view from the next frame (Reveal): typing earlier in the text does not throw it to the end
-        // for a frame, and a field not being edited shows the start of its text, as UITextField and UITextView do.
+        // for a frame, and a field not being edited shows the start of its text, as UITextField and UITextView do. A
+        // single line read right to left is the mirror image, its start at its right and its end at its left: while the
+        // caret is at the end of the text being edited the viewport keeps to its left, and otherwise to its right. A
+        // single line not being edited that comes to read the other way (its text, or whether it is secure, set from
+        // code) goes back to its text's start, as it does as editing ends.
         private void AnchorViewport()
         {
             if (_viewport == null) return;
             var selection = _value.Selection;
-            var anchor = _editing && selection.IsCollapsed && selection.Extent == _value.Text.Length ? ScrollAnchor.End : ScrollAnchor.Start;
-            if (_viewport.ScrollAnchor != anchor)
-                _viewport.ScrollAnchor = anchor;
+            bool atEnd = _editing && selection.IsCollapsed && selection.Extent == _value.Text.Length;
+            var anchor = atEnd != RightToLeftLine ? ScrollAnchor.End : ScrollAnchor.Start;
+            if (_viewport.ScrollAnchor == anchor) return;
+            _viewport.ScrollAnchor = anchor;
+            if (!_editing && !Multiline)
+                ScrollToLineStart();
         }
+
+        // Scrolls a single line to its text's start: its left, or its right for text read right to left, asked as far as
+        // the viewport goes, so a pass that resolves it inside a change takes it to the end of the range it lays out, the
+        // text grown or shrunk in the same change.
+        private void ScrollToLineStart()
+        {
+            if (_viewport != null)
+                _viewport.ScrollOffset = RightToLeftLine ? new Vector2(float.MaxValue, 0f) : Vector2.zero;
+        }
+
+        // Whether the text reads right to left as it is to be shown: found from the value rather than the last layout,
+        // which the value can be ahead of (the viewport is anchored before the text is laid out again).
+        private bool RightToLeft => _text != null && TextBlock.ReadsRightToLeft(DisplayOf(_value.Text), _text.Direction);
+
+        // A single line whose text reads right to left: it starts at its right.
+        private bool RightToLeftLine => !Multiline && RightToLeft;
 
         // The viewport is one line high for a single line, and for several grows from one line up to the most it shows,
         // by the text's line height; sized again only when that changes (a new font size).

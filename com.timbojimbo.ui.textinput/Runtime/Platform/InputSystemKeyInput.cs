@@ -19,8 +19,11 @@ namespace TimboJimbo.UI.TextInput
     /// Editing keys come from <see cref="InputSystem.onEvent"/>, which sees each keyboard event before it is applied, so a
     /// key going down is told apart within the frame and stays in order with the text around it. Shortcuts follow the
     /// platform (Command and Option on macOS, Ctrl elsewhere, as Flutter's default text editing shortcuts), and letters
-    /// are matched by what the key types in the current layout, so Ctrl-A is where the A is on AZERTY too. Return is the
-    /// return key (with Shift, a new line), Escape cancels, and Tab is left to move focus.
+    /// are matched by what the key types in the current layout, so Ctrl-A is where the A is on AZERTY too. The arrows go
+    /// left and right on screen, as in the platforms' own text views, and with Command (Alt elsewhere) to the line's left
+    /// or right end; Home, End and the Emacs keys go by the text's order, bar Android's Home and End, which go to the
+    /// line's ends on screen as its TextView's do. Return is the return key (with Shift, a new line), Escape cancels, and
+    /// Tab is left to move focus.
     /// </para>
     /// <para>
     /// The Input System has no key repeat of its own, so a held editing key repeats on a timer here, as the OS would:
@@ -59,6 +62,7 @@ namespace TimboJimbo.UI.TextInput
 
         private readonly bool _takesText;
         private readonly bool _mac;
+        private readonly bool _android;
         private readonly List<Entry> _queue = new();
         private readonly StringBuilder _text = new();
         private readonly Action<InputEventPtr, InputDevice> _onEvent;
@@ -81,6 +85,7 @@ namespace TimboJimbo.UI.TextInput
         {
             _takesText = takesText;
             _mac = SystemInfo.operatingSystemFamily == OperatingSystemFamily.MacOSX;
+            _android = Application.platform == RuntimePlatform.Android;
             _onEvent = OnEvent;
             _onDeviceChange = OnDeviceChange;
             _onText = OnText;
@@ -338,7 +343,7 @@ namespace TimboJimbo.UI.TextInput
                 // Shift and return: a new line whatever the return key does, as chat apps have it.
                 Key.Enter or Key.NumpadEnter when held == Modifiers.None => shift ? TextEditIntent.Newline : TextEditIntent.Return,
                 Key.Escape when held == Modifiers.None => TextEditIntent.Cancel,
-                _ => _mac ? MacKeyIntent(key, held, shift) : KeyIntent(key, held, shift),
+                _ => _mac ? MacKeyIntent(key, held, shift) : KeyIntent(key, held, shift, _android),
             };
             if (mapped == null && (held == Modifiers.Ctrl || held == Modifiers.Meta))
             {
@@ -347,27 +352,30 @@ namespace TimboJimbo.UI.TextInput
                     mapped = _mac ? MacLetterIntent(letter, held, shift) : LetterIntent(letter, held, shift);
             }
             intent = mapped.GetValueOrDefault();
-            // Shift extends the selection for moves; for the rest it picks the key (Shift-Delete cuts) or does nothing.
-            extend = mapped != null && shift && intent >= TextEditIntent.MoveLeft && intent <= TextEditIntent.MovePageDown;
+            // Shift extends the selection for moves (MoveLeft to MoveForward, which are all of them, in a row); for the rest
+            // it picks the key (Shift-Delete cuts) or does nothing.
+            extend = mapped != null && shift && intent >= TextEditIntent.MoveLeft && intent <= TextEditIntent.MoveForward;
             return mapped != null;
         }
 
-        // Windows, Linux and Android (Flutter's common, clipboard and Windows shortcuts).
-        private static TextEditIntent? KeyIntent(Key key, Modifiers held, bool shift) => (key, held, shift) switch
+        // Windows, Linux and Android (Flutter's common, clipboard and Windows shortcuts). Alt and an arrow go to that end
+        // of the line on screen, and so, on Android, do Home and End, as its TextView has them; elsewhere Home and End go
+        // to the line's start and end as the text reads.
+        private static TextEditIntent? KeyIntent(Key key, Modifiers held, bool shift, bool android) => (key, held, shift) switch
         {
             (Key.LeftArrow, Modifiers.None, _) => TextEditIntent.MoveLeft,
             (Key.LeftArrow, Modifiers.Ctrl, _) => TextEditIntent.MoveWordLeft,
-            (Key.LeftArrow, Modifiers.Alt, _) => TextEditIntent.MoveLineStart,
+            (Key.LeftArrow, Modifiers.Alt, _) => TextEditIntent.MoveLineLeft,
             (Key.RightArrow, Modifiers.None, _) => TextEditIntent.MoveRight,
             (Key.RightArrow, Modifiers.Ctrl, _) => TextEditIntent.MoveWordRight,
-            (Key.RightArrow, Modifiers.Alt, _) => TextEditIntent.MoveLineEnd,
+            (Key.RightArrow, Modifiers.Alt, _) => TextEditIntent.MoveLineRight,
             (Key.UpArrow, Modifiers.None, _) => TextEditIntent.MoveUp,
             (Key.UpArrow, Modifiers.Alt, _) => TextEditIntent.MoveDocumentStart,
             (Key.DownArrow, Modifiers.None, _) => TextEditIntent.MoveDown,
             (Key.DownArrow, Modifiers.Alt, _) => TextEditIntent.MoveDocumentEnd,
-            (Key.Home, Modifiers.None, _) => TextEditIntent.MoveLineStart,
+            (Key.Home, Modifiers.None, _) => android ? TextEditIntent.MoveLineLeft : TextEditIntent.MoveLineStart,
             (Key.Home, Modifiers.Ctrl, _) => TextEditIntent.MoveDocumentStart,
-            (Key.End, Modifiers.None, _) => TextEditIntent.MoveLineEnd,
+            (Key.End, Modifiers.None, _) => android ? TextEditIntent.MoveLineRight : TextEditIntent.MoveLineEnd,
             (Key.End, Modifiers.Ctrl, _) => TextEditIntent.MoveDocumentEnd,
             (Key.PageUp, Modifiers.None, _) => TextEditIntent.MovePageUp,
             (Key.PageDown, Modifiers.None, _) => TextEditIntent.MovePageDown,
@@ -396,16 +404,17 @@ namespace TimboJimbo.UI.TextInput
             _ => null,
         };
 
-        // macOS (Flutter's macOS shortcuts): Option moves by word, Command to the line's or the text's ends; Home, End,
-        // Page Up and Page Down only scroll there, so alone they do nothing here, and with Shift they select.
+        // macOS (Flutter's macOS shortcuts): Option moves by word, Command to the line's or the text's ends (Command and
+        // an arrow to the line's left or right end, Cocoa's moveToLeftEndOfLine:); Home, End, Page Up and Page Down only
+        // scroll there, so alone they do nothing here, and with Shift they select.
         private static TextEditIntent? MacKeyIntent(Key key, Modifiers held, bool shift) => (key, held, shift) switch
         {
             (Key.LeftArrow, Modifiers.None, _) => TextEditIntent.MoveLeft,
             (Key.LeftArrow, Modifiers.Alt, _) => TextEditIntent.MoveWordLeft,
-            (Key.LeftArrow, Modifiers.Meta, _) => TextEditIntent.MoveLineStart,
+            (Key.LeftArrow, Modifiers.Meta, _) => TextEditIntent.MoveLineLeft,
             (Key.RightArrow, Modifiers.None, _) => TextEditIntent.MoveRight,
             (Key.RightArrow, Modifiers.Alt, _) => TextEditIntent.MoveWordRight,
-            (Key.RightArrow, Modifiers.Meta, _) => TextEditIntent.MoveLineEnd,
+            (Key.RightArrow, Modifiers.Meta, _) => TextEditIntent.MoveLineRight,
             (Key.UpArrow, Modifiers.None, _) => TextEditIntent.MoveUp,
             (Key.UpArrow, Modifiers.Alt, _) => TextEditIntent.MoveLineStart,
             (Key.UpArrow, Modifiers.Meta, _) => TextEditIntent.MoveDocumentStart,
@@ -437,8 +446,8 @@ namespace TimboJimbo.UI.TextInput
             ('z', Modifiers.Meta, true) => TextEditIntent.Redo,
             ('a', Modifiers.Ctrl, false) => TextEditIntent.MoveLineStart,
             ('e', Modifiers.Ctrl, false) => TextEditIntent.MoveLineEnd,
-            ('b', Modifiers.Ctrl, false) => TextEditIntent.MoveLeft,
-            ('f', Modifiers.Ctrl, false) => TextEditIntent.MoveRight,
+            ('b', Modifiers.Ctrl, false) => TextEditIntent.MoveBackward,
+            ('f', Modifiers.Ctrl, false) => TextEditIntent.MoveForward,
             ('p', Modifiers.Ctrl, false) => TextEditIntent.MoveUp,
             ('n', Modifiers.Ctrl, false) => TextEditIntent.MoveDown,
             ('h', Modifiers.Ctrl, false) => TextEditIntent.DeleteBackward,

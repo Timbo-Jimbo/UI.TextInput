@@ -8,6 +8,7 @@ import android.content.res.Configuration;
 import android.graphics.Matrix;
 import android.graphics.RectF;
 import android.os.Build;
+import android.text.TextUtils;
 import android.view.MotionEvent;
 import android.view.SurfaceView;
 import android.view.View;
@@ -20,8 +21,11 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.ExtractedTextRequest;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
+import android.view.inputmethod.InputMethodSubtype;
 
 import com.unity3d.player.UnityPlayer;
+
+import java.util.Locale;
 
 /**
  * The view the keyboard types into: one pixel in the corner of Unity's frame layout, drawing nothing and taking no
@@ -47,6 +51,10 @@ final class TextInputView extends View implements EditingState.Listener
     private static final int CHANGE_COMPOSING = 2;
     private static final int CHANGE_WHOLESALE = 3;
 
+    // How often the keyboard's language is looked at while a session goes on (Android tells an app nothing when the
+    // user switches it), in milliseconds.
+    private static final int KEYBOARD_POLL_INTERVAL = 500;
+
     private final UnityPlayer mPlayer;
     private final InputMethodManager mImm;
     private final KeyboardTracker mTracker;
@@ -62,6 +70,7 @@ final class TextInputView extends View implements EditingState.Listener
 
     private final Runnable mShow = this::show;
     private final Runnable mReclaimFocus = this::reclaimFocus;
+    private final Runnable mPollKeyboardDirection = this::pollKeyboardDirection;
     private final ViewTreeObserver.OnGlobalFocusChangeListener mFocusListener = this::onGlobalFocusChanged;
     private final CursorAnchorInfo.Builder mAnchorInfo = new CursorAnchorInfo.Builder();
     private final Matrix mMatrix = new Matrix();
@@ -107,6 +116,8 @@ final class TextInputView extends View implements EditingState.Listener
         // Posted, so that it comes after the input method has bound to this view on its focus.
         removeCallbacks(mShow);
         post(mShow);
+        removeCallbacks(mPollKeyboardDirection);
+        pollKeyboardDirection();
     }
 
     void detach(int id)
@@ -119,6 +130,7 @@ final class TextInputView extends View implements EditingState.Listener
         mWantVisible = false;
         removeCallbacks(mShow);
         removeCallbacks(mReclaimFocus);
+        removeCallbacks(mPollKeyboardDirection);
         // Unless another editor took focus (and the keyboard with it), the keyboard goes down and focus goes back to
         // Unity's own view, which has no editor: clearing it instead would leave nothing focused in touch mode.
         if (isFocused())
@@ -183,6 +195,16 @@ final class TextInputView extends View implements EditingState.Listener
         session.hasGeometry = true;
         TextInputConnection connection = mConnection;
         if (connection != null && isCurrent(connection) && connection.monitorsCursor()) sendCursorAnchorInfo(session);
+    }
+
+    void setDirection(int id, boolean caretRightToLeft)
+    {
+        TextInputSession session = current(id);
+        if (session == null || session.caretRightToLeft == caretRightToLeft) return;
+        session.caretRightToLeft = caretRightToLeft;
+        TextInputConnection connection = mConnection;
+        if (session.hasGeometry && connection != null && isCurrent(connection) && connection.monitorsCursor())
+            sendCursorAnchorInfo(session);
     }
 
     void showEditMenu(int id, float left, float top, float right, float bottom, int actions)
@@ -277,7 +299,7 @@ final class TextInputView extends View implements EditingState.Listener
 
     /**
      * Sends the keyboard where the caret and the field are (for its candidate window and handwriting), in Unity's
-     * surface's pixels with the matrix that takes them to the screen.
+     * surface's pixels with the matrix that takes them to the screen, and whether the caret is in right-to-left text.
      */
     void sendCursorAnchorInfo(TextInputSession session)
     {
@@ -295,7 +317,8 @@ final class TextInputView extends View implements EditingState.Listener
             float height = surface.getHeight();
             RectF caret = session.caret;
             info.setInsertionMarkerLocation(caret.left * width, caret.top * height, caret.bottom * height,
-                caret.bottom * height, CursorAnchorInfo.FLAG_HAS_VISIBLE_REGION);
+                caret.bottom * height, CursorAnchorInfo.FLAG_HAS_VISIBLE_REGION
+                    | (session.caretRightToLeft ? CursorAnchorInfo.FLAG_IS_RTL : 0));
             surface.getLocationOnScreen(mLocation);
             mMatrix.setTranslate(mLocation[0], mLocation[1]);
             info.setMatrix(mMatrix);
@@ -373,6 +396,27 @@ final class TextInputView extends View implements EditingState.Listener
     private boolean hardwareKeyboardAttached()
     {
         return getResources().getConfiguration().hardKeyboardHidden == Configuration.HARDKEYBOARDHIDDEN_NO;
+    }
+
+    // Tells Unity which way the keyboard in use writes, as a session starts and then every so often until it ends: an
+    // empty field reads that way, as on iOS.
+    private void pollKeyboardDirection()
+    {
+        if (mSession == null) return;
+        TextInputBridge.setKeyboardRightToLeft(keyboardRightToLeft());
+        postDelayed(mPollKeyboardDirection, KEYBOARD_POLL_INTERVAL);
+    }
+
+    // Whether the language of the keyboard's current subtype is written right to left: by its language tag or, from a
+    // keyboard that gives none, its older locale string (ar_EG). No subtype, or no language, is left to right.
+    private boolean keyboardRightToLeft()
+    {
+        InputMethodSubtype subtype = mImm.getCurrentInputMethodSubtype();
+        if (subtype == null) return false;
+        String tag = subtype.getLanguageTag();
+        if (tag.isEmpty()) tag = subtype.getLocale().replace('_', '-');
+        return !tag.isEmpty()
+            && TextUtils.getLayoutDirectionFromLocale(Locale.forLanguageTag(tag)) == LAYOUT_DIRECTION_RTL;
     }
 
     // The session is over on this side (the user or another editor ended it): Unity is told, and detaches it.

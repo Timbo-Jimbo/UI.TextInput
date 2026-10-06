@@ -5,7 +5,7 @@
 // so that layout follows the keyboard exactly.
 //
 // It also gives Unity its audio back after dictation, which takes the audio session; Unity's own keyboard does this for
-// its own text view only.
+// its own text view only. And it tells C# which way each keyboard the user switches to writes.
 
 #import "TJTextInputInternal.h"
 
@@ -259,6 +259,8 @@ static float TJDockedInset(CGRect end, UIScreen* screen, UIView* view)
         s_dictationUsed = YES;
     else
         TJGiveAudioBack();
+    // The user switched keyboards: C# hears which way the new one writes.
+    [view reportInputMode];
 }
 
 @end

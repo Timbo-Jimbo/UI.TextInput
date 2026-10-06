@@ -132,21 +132,40 @@ namespace TimboJimbo.UI.TextInput
     /// An editing key from a hardware or desktop keyboard, already mapped from the platform's keys (arrows and the
     /// modifiers that make them jump a word or a line, deletion, the clipboard, undo) to what it does, as Flutter's text
     /// editing intents are. The field carries it out with its own layout, so a word or a line means what it shows.
+    /// <para>
+    /// Left and right are where the arrows point on screen, as in iOS, macOS and Android text views: in text that reads
+    /// right to left the left arrow moves on through the text, and in text that reads both ways the caret goes to the
+    /// place beside it on screen. Start, end, backward and forward are the text's own order, whichever way it reads.
+    /// </para>
     /// </summary>
     public enum TextEditIntent
     {
+        /// <summary>The caret to the place beside it on the left (the left arrow).</summary>
         MoveLeft,
+        /// <summary>The caret to the place beside it on the right (the right arrow).</summary>
         MoveRight,
         MoveUp,
         MoveDown,
+        /// <summary>A word towards the left (Option or Ctrl and the left arrow): back a word in left-to-right text, on a word in right-to-left text.</summary>
         MoveWordLeft,
+        /// <summary>A word towards the right: on a word in left-to-right text, back a word in right-to-left text.</summary>
         MoveWordRight,
+        /// <summary>The start of the line, as the text reads (Home, Ctrl-A).</summary>
         MoveLineStart,
+        /// <summary>The end of the line, as the text reads (End, Ctrl-E).</summary>
         MoveLineEnd,
         MoveDocumentStart,
         MoveDocumentEnd,
         MovePageUp,
         MovePageDown,
+        /// <summary>The line's left end on screen (Cmd and the left arrow on a Mac or an iPad): its start in left-to-right text, its end in right-to-left text.</summary>
+        MoveLineLeft,
+        /// <summary>The line's right end on screen (Cmd and the right arrow).</summary>
+        MoveLineRight,
+        /// <summary>Back a character in the text's order, whichever way it reads (Ctrl-B on a Mac).</summary>
+        MoveBackward,
+        /// <summary>On a character in the text's order (Ctrl-F on a Mac).</summary>
+        MoveForward,
         DeleteBackward,
         DeleteForward,
         DeleteWordBackward,

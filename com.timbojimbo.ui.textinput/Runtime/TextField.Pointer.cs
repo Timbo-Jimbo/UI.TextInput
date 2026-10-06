@@ -292,10 +292,12 @@ namespace TimboJimbo.UI.TextInput
                 return;
             }
             var selection = _value.Selection;
-            // On the caret: at its index, and on the same side of a wrap there, if a line wraps there.
+            // On the caret: at its index, and on the same side of a wrap there, if a line wraps there. On a selection: on
+            // what is highlighted, level with the line the tap is on, as iOS has it, so a tap on any letter selected counts
+            // (in text that reads both ways, the far half of a right-to-left letter is at the index after it).
             bool onSelection = selection.IsCollapsed
                 ? index == selection.Extent && (upstream == _upstream || !WrapsAt(index))
-                : index > selection.Start && index < selection.End;
+                : OnHighlight(new Vector2(local.x, _text.GetCaretRect(index, upstream).center.y));
             if (!onSelection)
                 SetSelection(TextSelection.Collapsed(index), upstream);
             else if (_menuShown)
@@ -336,6 +338,19 @@ namespace TimboJimbo.UI.TextInput
             return word;
         }
 
+        // Whether a point in the text's space is on one of the rects the selection is highlighted with.
+        private bool OnHighlight(Vector2 local)
+        {
+            var selection = _value.Selection;
+            _text.GetCharacterRects(selection.Start, selection.End, s_rects);
+            for (int i = 0; i < s_rects.Count; i++)
+            {
+                if (s_rects[i].Contains(local))
+                    return true;
+            }
+            return false;
+        }
+
         // ── Handles ──────────────────────────────────────────────────────────────
 
         internal void OnHandlePressed(TextFieldHandle handle, PointerEventData eventData)
@@ -348,11 +363,13 @@ namespace TimboJimbo.UI.TextInput
             _grab = local - HandleCaret(handle.IsStart).center;
         }
 
-        // The end the handle stands for follows the pointer; the two ends never cross, a character staying between them.
+        // The end the handle stands for follows the pointer, to the edge nearest it of the kind the handle stands at (see
+        // HandleCaret), on a whole character; the two ends never cross, a character staying between them.
         internal void OnHandleDragged(TextFieldHandle handle, PointerEventData eventData)
         {
             if (_text == null || !ToTextLocal(eventData.position, eventData.pressEventCamera, out var local)) return;
-            int index = IndexAt(local - _grab, out bool upstream);
+            _text.EnsureLayout();
+            int index = Snap(_text.GetIndexAtEdge(local - _grab, handle.IsStart, out bool upstream));
             var text = _value.Text;
             var selection = _value.Selection;
             // The end being dragged is the extent, so the field scrolls after it.
@@ -362,12 +379,17 @@ namespace TimboJimbo.UI.TextInput
             SetSelection(dragged, upstream && dragged.Extent == index);
         }
 
-        // Where a handle stands, in the text's space: the selection's start at the start of the line after a wrap there,
-        // and its end at the end of the line before one, so each stays beside the text it selects.
+        // Where a handle stands, in the text's space: beside the characters selected, as Android stands its handles and
+        // iOS its selection's ends, the start handle at the leading edge of the first and the end handle at the trailing
+        // edge of the last, each in that character's own direction, so each stays beside the text it selects however the
+        // text around it reads, and on the line that character is on where a line wraps. The last character is the last
+        // one shown: a secure field shows a bullet for each UTF-16 unit.
         private Rect HandleCaret(bool isStart)
         {
             var selection = _value.Selection;
-            return isStart ? _text.GetCaretRect(selection.Start) : _text.GetCaretRect(selection.End, upstream: true);
+            return isStart
+                ? _text.GetCharacterEdgeRect(selection.Start, leading: true)
+                : _text.GetCharacterEdgeRect(TextBoundaries.PreviousCaretStop(_text.Text, selection.End), leading: false);
         }
 
         internal void OnHandleReleased(TextFieldHandle handle) => ShowMenu();

@@ -21,8 +21,9 @@ namespace TimboJimbo.UI.TextInput
     /// </para>
     /// <para>
     /// It also tracks the software keyboard: <see cref="KeyboardHeight"/> follows it frame by frame as it slides, and is
-    /// handed to layout (<see cref="LayoutSystem.KeyboardHeight"/>), where it is part of the safe area, as SwiftUI's
-    /// keyboard safe area is: a screen's content rises above the keyboard while its background reaches under it.
+    /// handed to layout (<see cref="LayoutSystem.KeyboardHeight"/>), where a screen that avoids it
+    /// (<see cref="LayoutNode.AvoidsKeyboard"/>, as UIKit's keyboard layout guide) has its content rise above the keyboard
+    /// while its background reaches under it.
     /// </para>
     /// </summary>
     public static class TextInputSystem
@@ -41,14 +42,18 @@ namespace TimboJimbo.UI.TextInput
         private static TextEditingValue s_remote;
         private static TextInputConfig s_remoteConfig;
 
-        // The geometry last sent, so it is sent only when it changes.
+        // The geometry and direction last sent, so they are sent only when they change.
         private static bool s_geometrySent;
         private static Rect s_field;
         private static Rect s_caret;
         private static Rect s_composing;
+        private static bool s_directionSent;
+        private static bool s_rightToLeft;
+        private static bool s_caretRightToLeft;
 
         private static float s_keyboardHeight;
         private static bool s_keyboardVisible;
+        private static bool s_keyboardRightToLeft;
         private static float s_simulated;
         private static float s_simulatedVelocity;
 
@@ -75,7 +80,15 @@ namespace TimboJimbo.UI.TextInput
         /// <summary>Whether a software keyboard is up, docked or not.</summary>
         public static bool KeyboardVisible => s_keyboardVisible;
 
-        /// <summary>Raised on each frame the keyboard's height or visibility changes.</summary>
+        /// <summary>
+        /// Whether the keyboard in use writes right to left (Arabic, Hebrew, Persian, Urdu), as the platform last said:
+        /// on iOS and Android, the language of the keyboard the user has picked. A field's text with no letter yet (empty,
+        /// or only numbers and emoji) reads its way, so the caret of an empty field starts at the right with an Arabic
+        /// keyboard, as on iOS. Always false on desktop.
+        /// </summary>
+        public static bool KeyboardRightToLeft => s_keyboardRightToLeft;
+
+        /// <summary>Raised on each frame the keyboard's height, its visibility or the direction it writes in changes.</summary>
         public static event Action KeyboardChanged;
 
         /// <summary>
@@ -101,6 +114,8 @@ namespace TimboJimbo.UI.TextInput
             s_geometrySent = false;
             s_keyboardHeight = 0f;
             s_keyboardVisible = false;
+            s_keyboardRightToLeft = false;
+            s_directionSent = false;
             s_simulated = 0f;
             s_simulatedVelocity = 0f;
             s_hooked = false;
@@ -134,6 +149,7 @@ namespace TimboJimbo.UI.TextInput
             s_remote = client.Value;
             s_remoteConfig = client.Config;
             s_geometrySent = false;
+            s_directionSent = false;
             backend.Attach(s_session, s_remoteConfig, s_remote, s_serial);
             ClientChanged?.Invoke(client);
         }
@@ -317,11 +333,13 @@ namespace TimboJimbo.UI.TextInput
         }
 
         // The keyboard's height this frame, from the platform, or the simulated keyboard's: handed to layout, outside any
-        // change, so the layout follows the keyboard exactly rather than chasing it on springs.
+        // change, so the layout follows the keyboard exactly rather than chasing it on springs. And the direction it
+        // writes in.
         private static void UpdateKeyboard()
         {
             float height = s_backend.KeyboardHeight;
             bool visible = s_backend.KeyboardVisible;
+            bool rightToLeft = s_backend.KeyboardRightToLeft;
             float goal = SimulateSoftKeyboard && s_client != null ? Screen.height * SimulatedKeyboardPart : 0f;
             if (s_simulated > 0f || goal > 0f)
             {
@@ -335,9 +353,10 @@ namespace TimboJimbo.UI.TextInput
                 height = Mathf.Max(height, s_simulated);
                 visible |= s_simulated > 0f;
             }
-            if (Mathf.Abs(height - s_keyboardHeight) < 0.01f && visible == s_keyboardVisible) return;
+            if (Mathf.Abs(height - s_keyboardHeight) < 0.01f && visible == s_keyboardVisible && rightToLeft == s_keyboardRightToLeft) return;
             s_keyboardHeight = height;
             s_keyboardVisible = visible;
+            s_keyboardRightToLeft = rightToLeft;
             LayoutSystem.KeyboardHeight = height;
             KeyboardChanged?.Invoke();
         }
@@ -346,6 +365,14 @@ namespace TimboJimbo.UI.TextInput
         {
             if (!Application.isPlaying || s_client == null || s_backend == null) return;
             if (!s_client.TryGetScreenGeometry(out var field, out var caret, out var composing)) return;
+            s_client.GetDirection(out bool rightToLeft, out bool caretRightToLeft);
+            if (!s_directionSent || rightToLeft != s_rightToLeft || caretRightToLeft != s_caretRightToLeft)
+            {
+                s_directionSent = true;
+                s_rightToLeft = rightToLeft;
+                s_caretRightToLeft = caretRightToLeft;
+                s_backend.SetDirection(s_session, rightToLeft, caretRightToLeft);
+            }
             if (s_geometrySent && field == s_field && caret == s_caret && composing == s_composing) return;
             s_geometrySent = true;
             s_field = field;

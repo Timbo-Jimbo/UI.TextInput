@@ -15,7 +15,7 @@ namespace TimboJimbo.UI.TextInput
     /// JNI (cached class and method IDs, one reused argument array, nothing allocated but the strings passed) and are
     /// posted to the UI thread there, never waited for. What the keyboard does comes back as events Java queues: once a
     /// frame a counter is read, and only when it has moved are the events drained, as one string. The keyboard's height
-    /// is read each frame, as a fraction of Unity's surface it covers.
+    /// is read each frame, as a fraction of Unity's surface it covers, and so is the direction its language writes in.
     /// </para>
     /// <para>
     /// Hardware keyboards type through Unity as on desktop (GameActivity hands their keys to the Input System, and the
@@ -39,18 +39,37 @@ namespace TimboJimbo.UI.TextInput
         // long as Android 11 and later take to slide the keyboard, on the same curve.
         private const float SteppedKeyboardTime = 0.285f;
 
+        // The editing keys the Java side sends (TextInputConnection's INTENT_ codes): numbered there for itself, so
+        // that TextEditIntent can grow without the two falling out of step.
+        private enum NativeIntent
+        {
+            Return = 0,
+            MoveLeft = 1,
+            MoveRight = 2,
+            MoveUp = 3,
+            MoveDown = 4,
+            MoveWordLeft = 5,
+            MoveWordRight = 6,
+            MoveLineLeft = 7,
+            MoveLineRight = 8,
+            MoveDocumentStart = 9,
+            MoveDocumentEnd = 10,
+        }
+
         private static IntPtr s_class;
         private static IntPtr s_attach;
         private static IntPtr s_detach;
         private static IntPtr s_setConfig;
         private static IntPtr s_setValue;
         private static IntPtr s_setGeometry;
+        private static IntPtr s_setDirection;
         private static IntPtr s_showEditMenu;
         private static IntPtr s_hideEditMenu;
         private static IntPtr s_changeCounter;
         private static IntPtr s_drain;
         private static IntPtr s_keyboardFraction;
         private static IntPtr s_keyboardVisible;
+        private static IntPtr s_keyboardRightToLeft;
         private static bool s_keyboardAnimates;
         // Reused for every call: all of them are made on Unity's main thread, one at a time.
         private static readonly jvalue[] s_args = new jvalue[11];
@@ -64,6 +83,7 @@ namespace TimboJimbo.UI.TextInput
 
         private float _keyboardHeight;
         private bool _keyboardVisible;
+        private bool _keyboardRightToLeft;
 
         // The keyboard's covered fraction as shown, easing from _easedFrom to _easedTo since _easedSince (stepped only).
         private float _eased;
@@ -81,6 +101,8 @@ namespace TimboJimbo.UI.TextInput
         public float KeyboardHeight => _keyboardHeight;
 
         public bool KeyboardVisible => _keyboardVisible;
+
+        public bool KeyboardRightToLeft => _keyboardRightToLeft;
 
         public void Attach(int session, in TextInputConfig config, in TextEditingValue value, int serial)
         {
@@ -140,6 +162,16 @@ namespace TimboJimbo.UI.TextInput
             AndroidJNI.CallStaticVoidMethod(s_class, s_setGeometry, args);
         }
 
+        public void SetDirection(int session, bool rightToLeft, bool caretRightToLeft)
+        {
+            if (session != _session) return;
+            var args = s_args;
+            args[0].i = session;
+            args[1].z = rightToLeft;
+            args[2].z = caretRightToLeft;
+            AndroidJNI.CallStaticVoidMethod(s_class, s_setDirection, args);
+        }
+
         public void ShowEditMenu(int session, Rect target, TextEditActions actions)
         {
             if (session != _session) return;
@@ -164,6 +196,7 @@ namespace TimboJimbo.UI.TextInput
 
             float fraction = AndroidJNI.CallStaticFloatMethod(s_class, s_keyboardFraction, s_args);
             _keyboardVisible = AndroidJNI.CallStaticBooleanMethod(s_class, s_keyboardVisible, s_args);
+            _keyboardRightToLeft = AndroidJNI.CallStaticBooleanMethod(s_class, s_keyboardRightToLeft, s_args);
             if (!s_keyboardAnimates) fraction = Ease(fraction);
             _keyboardHeight = fraction * Screen.height;
         }
@@ -200,12 +233,14 @@ namespace TimboJimbo.UI.TextInput
             s_setConfig = Method("setConfig", "(IIIII)V");
             s_setValue = Method("setValue", "(IILjava/lang/String;IIIII)V");
             s_setGeometry = Method("setGeometry", "(IFFFFFFFF)V");
+            s_setDirection = Method("setDirection", "(IZZ)V");
             s_showEditMenu = Method("showEditMenu", "(IFFFFI)V");
             s_hideEditMenu = Method("hideEditMenu", "()V");
             s_changeCounter = Method("changeCounter", "()J");
             s_drain = Method("drain", "()Ljava/lang/String;");
             s_keyboardFraction = Method("keyboardFraction", "()F");
             s_keyboardVisible = Method("keyboardVisible", "()Z");
+            s_keyboardRightToLeft = Method("keyboardRightToLeft", "()Z");
             s_keyboardAnimates = AndroidJNI.CallStaticBooleanMethod(s_class, Method("keyboardAnimates", "()Z"), s_args);
         }
 
@@ -273,9 +308,25 @@ namespace TimboJimbo.UI.TextInput
                     }
                     case 'I':
                     {
-                        int intent = ReadInt(events, ref i);
+                        var intent = (NativeIntent)ReadInt(events, ref i);
                         bool extend = ReadInt(events, ref i) != 0;
-                        into.Add(TextInputEvent.ForIntent(session, (TextEditIntent)intent, extend));
+                        TextEditIntent? textIntent = intent switch
+                        {
+                            NativeIntent.Return => TextEditIntent.Return,
+                            NativeIntent.MoveLeft => TextEditIntent.MoveLeft,
+                            NativeIntent.MoveRight => TextEditIntent.MoveRight,
+                            NativeIntent.MoveUp => TextEditIntent.MoveUp,
+                            NativeIntent.MoveDown => TextEditIntent.MoveDown,
+                            NativeIntent.MoveWordLeft => TextEditIntent.MoveWordLeft,
+                            NativeIntent.MoveWordRight => TextEditIntent.MoveWordRight,
+                            NativeIntent.MoveLineLeft => TextEditIntent.MoveLineLeft,
+                            NativeIntent.MoveLineRight => TextEditIntent.MoveLineRight,
+                            NativeIntent.MoveDocumentStart => TextEditIntent.MoveDocumentStart,
+                            NativeIntent.MoveDocumentEnd => TextEditIntent.MoveDocumentEnd,
+                            _ => (TextEditIntent?)null,
+                        };
+                        if (textIntent.HasValue)
+                            into.Add(TextInputEvent.ForIntent(session, textIntent.Value, extend));
                         break;
                     }
                     case 'X':

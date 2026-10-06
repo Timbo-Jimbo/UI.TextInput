@@ -245,26 +245,6 @@ final class EditingState extends SpannableStringBuilder
         Selection.setSelection(this, start);
     }
 
-    /**
-     * An arrow key: the caret moves a whole character; with {@code extend} (shift), the selection's moving end does,
-     * and without it a selection collapses to the side moved towards.
-     */
-    void moveCaret(boolean forward, boolean extend)
-    {
-        int base = selectionBase();
-        int extent = selectionExtent();
-        if (!extend && base != extent)
-        {
-            Selection.setSelection(this, forward ? selectionMax() : selectionMin());
-            return;
-        }
-        int to = forward ? nextCluster(extent) : previousCluster(extent);
-        if (extend)
-            Selection.setSelection(this, base, to);
-        else
-            Selection.setSelection(this, to);
-    }
-
     // Grapheme clusters: what a user sees as one character.
     private int previousCluster(int index)
     {

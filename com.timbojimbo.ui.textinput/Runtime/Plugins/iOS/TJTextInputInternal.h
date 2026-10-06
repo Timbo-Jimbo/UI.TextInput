@@ -17,6 +17,7 @@ void TJTIReportEdit(int32_t session, int32_t baseSerial, NSString* text, NSInteg
 void TJTIReportIntent(int32_t session, int32_t intent, BOOL extend);
 void TJTIReportEnded(int32_t session);
 void TJTIReportKeyboard(const TJTIKeyboardEvent* keyboard);
+void TJTIReportKeyboardDirection(BOOL rightToLeft);
 
 // The view the proxies live in: a child of the Unity view, as large as it, that touches and VoiceOver pass through.
 UIView* TJTIHostView(void);
@@ -71,6 +72,10 @@ void TJTIDictationRecordingDidEnd(void);
 // The mirrored text.
 @property (nonatomic, readonly) NSString* text;
 
+// Whether the text reads right to left, as C# laid it out: the base writing direction UIKit is told, and which way left
+// and right go in the text when UIKit moves by them itself.
+@property (nonatomic) BOOL rightToLeft;
+
 - (instancetype)initWithSession:(int32_t)session config:(const TJTIConfig*)config;
 
 - (void)applyConfig:(const TJTIConfig*)config;
@@ -89,6 +94,9 @@ void TJTIDictationRecordingDidEnd(void);
 - (void)showEditMenuAt:(CGRect)target actions:(int32_t)actions;
 
 - (void)hideEditMenu;
+
+// Tells C# which way the keyboard in use writes, from the language of the view's input mode.
+- (void)reportInputMode;
 
 // Its session ended: it reports nothing more and cannot become first responder again.
 - (void)deactivate;

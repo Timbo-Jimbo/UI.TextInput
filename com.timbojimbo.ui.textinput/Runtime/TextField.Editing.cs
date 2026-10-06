@@ -11,6 +11,9 @@ namespace TimboJimbo.UI.TextInput
         // page are what it shows. Moves leave the selection's base where it is when `extend` (shift is held) and collapse
         // it otherwise; deletes take what is selected, or else from the caret to where the key reaches. A secure field
         // shows no words, so a word's moves and deletes go to the end of the text, as a browser's password field does.
+        // Left and right are where the arrows point on screen, as on iOS, macOS and Android: the caret goes to the place
+        // beside it, and in text that reads right to left the word and the line's end towards the left are the next
+        // ones. Backward and forward, start and end, are the text's own order.
         void ITextInputClient.PerformIntent(TextEditIntent intent, bool extend)
         {
             var value = _value;
@@ -22,12 +25,20 @@ namespace TimboJimbo.UI.TextInput
             int end = collapse ? selection.End : selection.Extent;
             int caret = selection.Extent;
             bool secure = _config.IsSecure;
+            int WordBack(int from) => secure ? 0 : TextBoundaries.PreviousWordStart(text, from);
+            int WordOn(int from) => secure ? text.Length : TextBoundaries.NextWordEnd(text, from);
             switch (intent)
             {
                 case TextEditIntent.MoveLeft:
-                    Move(collapse ? start : TextBoundaries.PreviousCaretStop(text, caret), extend);
+                    MoveAcross(toRight: false, collapse, extend);
                     break;
                 case TextEditIntent.MoveRight:
+                    MoveAcross(toRight: true, collapse, extend);
+                    break;
+                case TextEditIntent.MoveBackward:
+                    Move(collapse ? start : TextBoundaries.PreviousCaretStop(text, caret), extend);
+                    break;
+                case TextEditIntent.MoveForward:
                     Move(collapse ? end : TextBoundaries.NextCaretStop(text, caret), extend);
                     break;
                 case TextEditIntent.MoveUp:
@@ -43,21 +54,29 @@ namespace TimboJimbo.UI.TextInput
                     MoveLines(end, PageLines(), extend);
                     break;
                 case TextEditIntent.MoveWordLeft:
-                    Move(secure ? 0 : TextBoundaries.PreviousWordStart(text, start), extend);
+                    Move(RightToLeft ? WordOn(end) : WordBack(start), extend);
                     break;
                 case TextEditIntent.MoveWordRight:
-                    Move(secure ? text.Length : TextBoundaries.NextWordEnd(text, end), extend);
+                    Move(RightToLeft ? WordBack(start) : WordOn(end), extend);
                     break;
                 case TextEditIntent.MoveLineStart:
                     Move(LineStart(start), extend);
                     break;
                 case TextEditIntent.MoveLineEnd:
-                {
-                    // The end of a line that wraps is where the next starts: the caret stays on this line, upstream.
-                    int to = LineEnd(end);
-                    Move(to, extend, WrapsAt(to));
+                    MoveToLineEnd(end, extend);
                     break;
-                }
+                case TextEditIntent.MoveLineLeft:
+                    if (RightToLeft)
+                        MoveToLineEnd(end, extend);
+                    else
+                        Move(LineStart(start), extend);
+                    break;
+                case TextEditIntent.MoveLineRight:
+                    if (RightToLeft)
+                        Move(LineStart(start), extend);
+                    else
+                        MoveToLineEnd(end, extend);
+                    break;
                 case TextEditIntent.MoveDocumentStart:
                     Move(0, extend);
                     break;
@@ -73,10 +92,10 @@ namespace TimboJimbo.UI.TextInput
                     DeleteOn(TextBoundaries.NextCaretStop(text, caret), coalesce: true);
                     break;
                 case TextEditIntent.DeleteWordBackward:
-                    DeleteBack(secure ? 0 : TextBoundaries.PreviousWordStart(text, caret), coalesce: false);
+                    DeleteBack(WordBack(caret), coalesce: false);
                     break;
                 case TextEditIntent.DeleteWordForward:
-                    DeleteOn(secure ? text.Length : TextBoundaries.NextWordEnd(text, caret), coalesce: false);
+                    DeleteOn(WordOn(caret), coalesce: false);
                     break;
                 case TextEditIntent.DeleteToLineStart:
                 {
@@ -140,6 +159,65 @@ namespace TimboJimbo.UI.TextInput
         {
             var selection = _value.Selection;
             SetSelection(extend ? new TextSelection(selection.Base, to) : TextSelection.Collapsed(to), upstream);
+        }
+
+        // The left or the right arrow: the caret (with shift, the selection's extent) to the place beside it on screen,
+        // which in text that reads both ways need not be the next index, and past either end of a line to the line before
+        // or after, as the text reads; without shift, a selection collapses to its end on that side. With no text to lay
+        // out, back or on a character.
+        private void MoveAcross(bool toRight, bool collapse, bool extend)
+        {
+            var selection = _value.Selection;
+            int extent = selection.Extent;
+            if (_text == null)
+            {
+                var text = _value.Text;
+                if (collapse)
+                    Move(toRight ? selection.End : selection.Start, extend);
+                else
+                    Move(toRight ? TextBoundaries.NextCaretStop(text, extent) : TextBoundaries.PreviousCaretStop(text, extent), extend);
+                return;
+            }
+            _text.EnsureLayout();
+            if (collapse)
+            {
+                int side = SelectionSide(selection, toRight);
+                Move(side, extend: false, UpstreamAt(side));
+                return;
+            }
+            int beside = _text.GetVisualNeighbour(extent, UpstreamAt(extent), toRight, out bool upstream);
+            // The layout stops before each character it draws, which can be inside one of ours (a secure field shows a
+            // bullet for each UTF-16 unit of an emoji): such a place is taken on to the end of our character the move
+            // goes towards in the text, so the caret gets past it.
+            int to = Snap(beside);
+            if (to < beside && beside > extent)
+                to = TextBoundaries.NextCaretStop(_value.Text, to);
+            Move(to, extend, upstream);
+        }
+
+        // The end of a selection that is on the left of the other on screen, or on the right for `right`: by where their
+        // carets stand when both are on one line, otherwise by the way the text reads, its start on the left of text that
+        // reads left to right.
+        private int SelectionSide(TextSelection selection, bool right)
+        {
+            int start = selection.Start, end = selection.End;
+            bool startOnLeft = !RightToLeft;
+            bool startUpstream = UpstreamAt(start), endUpstream = UpstreamAt(end);
+            if (_text.GetLineAt(start, startUpstream) == _text.GetLineAt(end, endUpstream))
+            {
+                float startX = _text.GetCaretRect(start, startUpstream).x, endX = _text.GetCaretRect(end, endUpstream).x;
+                if (!Mathf.Approximately(startX, endX))
+                    startOnLeft = startX < endX;
+            }
+            return startOnLeft != right ? start : end;
+        }
+
+        // The end of the line `from` is on. The end of a line that wraps is where the next starts: the caret stays on this
+        // line, upstream.
+        private void MoveToLineEnd(int from, bool extend)
+        {
+            int to = LineEnd(from);
+            Move(to, extend, WrapsAt(to));
         }
 
         // Up or down `lines` lines from `from`, keeping to the x the caret had as the run of moves up and down began, so it

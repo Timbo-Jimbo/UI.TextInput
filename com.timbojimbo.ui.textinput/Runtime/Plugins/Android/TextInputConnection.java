@@ -10,9 +10,9 @@ import android.view.inputmethod.ExtractedTextRequest;
  * What the keyboard talks to: BaseInputConnection over the session's mirror (as a full editor, so text arrives as
  * text, not key events), which already does composing, committing, deleting around the caret, selecting and the reads.
  * On top: batch edits that nest and report as the outermost ends (the base class's do nothing), the keys a soft
- * keyboard sends applied to the mirror (never passed on to Unity, which would handle them a second time), the return
- * key and editor actions sent to Unity, extracted text and cursor updates for keyboards that watch them, and the
- * clipboard actions keyboards offer.
+ * keyboard sends applied to the mirror or, for moves, sent to Unity as editing keys (never passed on as key events,
+ * which Unity would handle a second time), the return key and editor actions sent to Unity, extracted text and cursor
+ * updates for keyboards that watch them, and the clipboard actions keyboards offer.
  *
  * <p>A connection belongs to the session it was made for and works only while it is the view's newest: one replaced
  * (the input restarted, the session ended) answers nothing and changes nothing, though it still closes the batch edits
@@ -20,12 +20,18 @@ import android.view.inputmethod.ExtractedTextRequest;
  */
 final class TextInputConnection extends BaseInputConnection
 {
-    // TextEditIntent's values, for the keys handed to Unity.
-    static final int INTENT_MOVE_UP = 2;
-    static final int INTENT_MOVE_DOWN = 3;
-    static final int INTENT_MOVE_LINE_START = 6;
-    static final int INTENT_MOVE_LINE_END = 7;
-    static final int INTENT_RETURN = 25;
+    // The keys handed to Unity, numbered for this side alone: AndroidTextInputBackend (C#) maps them to TextEditIntent.
+    static final int INTENT_RETURN = 0;
+    static final int INTENT_MOVE_LEFT = 1;
+    static final int INTENT_MOVE_RIGHT = 2;
+    static final int INTENT_MOVE_UP = 3;
+    static final int INTENT_MOVE_DOWN = 4;
+    static final int INTENT_MOVE_WORD_LEFT = 5;
+    static final int INTENT_MOVE_WORD_RIGHT = 6;
+    static final int INTENT_MOVE_LINE_LEFT = 7;
+    static final int INTENT_MOVE_LINE_RIGHT = 8;
+    static final int INTENT_MOVE_DOCUMENT_START = 9;
+    static final int INTENT_MOVE_DOCUMENT_END = 10;
 
     private final TextInputView mView;
     private final TextInputSession mSession;
@@ -175,8 +181,11 @@ final class TextInputConnection extends BaseInputConnection
     }
 
     // A key a soft keyboard sent (LatinIME sends digits and, when it has lost track of the caret, backspace as keys;
-    // Gboard's cursor control sends arrows): applied to the mirror, or, for moves that need the field's lines, handed to
-    // Unity. Inside a batch edit.
+    // Gboard's cursor control sends arrows): applied to the mirror, or, for moves, which need the field's layout,
+    // handed to Unity. As in TextView, the arrows and Home and End go the way they point on screen (in right-to-left
+    // text the left arrow goes on through it, and Home to the line's left end); Ctrl and an arrow move a word, Alt and
+    // an arrow go to the line's end that way, and Ctrl and Home or End to the start or end of the text. Inside a batch
+    // edit.
     private boolean applyKey(KeyEvent event)
     {
         EditingState state = mSession.state;
@@ -202,10 +211,12 @@ final class TextInputConnection extends BaseInputConnection
                 }
                 return true;
             case KeyEvent.KEYCODE_DPAD_LEFT:
-                state.moveCaret(false, shift);
+                mView.sendIntent(mSession, event.isCtrlPressed() ? INTENT_MOVE_WORD_LEFT
+                    : event.isAltPressed() ? INTENT_MOVE_LINE_LEFT : INTENT_MOVE_LEFT, shift);
                 return true;
             case KeyEvent.KEYCODE_DPAD_RIGHT:
-                state.moveCaret(true, shift);
+                mView.sendIntent(mSession, event.isCtrlPressed() ? INTENT_MOVE_WORD_RIGHT
+                    : event.isAltPressed() ? INTENT_MOVE_LINE_RIGHT : INTENT_MOVE_RIGHT, shift);
                 return true;
             case KeyEvent.KEYCODE_DPAD_UP:
                 mView.sendIntent(mSession, INTENT_MOVE_UP, shift);
@@ -214,10 +225,12 @@ final class TextInputConnection extends BaseInputConnection
                 mView.sendIntent(mSession, INTENT_MOVE_DOWN, shift);
                 return true;
             case KeyEvent.KEYCODE_MOVE_HOME:
-                mView.sendIntent(mSession, INTENT_MOVE_LINE_START, shift);
+                mView.sendIntent(mSession, event.isCtrlPressed() ? INTENT_MOVE_DOCUMENT_START : INTENT_MOVE_LINE_LEFT,
+                    shift);
                 return true;
             case KeyEvent.KEYCODE_MOVE_END:
-                mView.sendIntent(mSession, INTENT_MOVE_LINE_END, shift);
+                mView.sendIntent(mSession, event.isCtrlPressed() ? INTENT_MOVE_DOCUMENT_END : INTENT_MOVE_LINE_RIGHT,
+                    shift);
                 return true;
             default:
                 return typeKey(event);

@@ -40,5 +40,12 @@ namespace TimboJimbo.UI.TextInput
         /// and edit menu by these. False while it is not laid out.
         /// </summary>
         bool TryGetScreenGeometry(out Rect field, out Rect caret, out Rect composing);
+
+        /// <summary>
+        /// Which way its text reads, for the platform: whether the text reads right to left (UIKit's base writing
+        /// direction, and which way the platform's own moves go), and whether the character at the caret does (the
+        /// insertion marker's direction Android's keyboards place their floating candidates by). Asked with its geometry.
+        /// </summary>
+        void GetDirection(out bool rightToLeft, out bool caretRightToLeft);
     }
 }

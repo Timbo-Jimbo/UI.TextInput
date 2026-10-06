@@ -41,6 +41,10 @@ namespace TimboJimbo.UI.TextInput
             viewport.ShowsScrollIndicators = multiline;
 
             var text = NewText(NewNode(viewport.transform, "Text"), string.Empty, fontSize, textColour);
+            // What people type reads the way its first letter does, and starts at that side, as in a text view on iOS or
+            // Android: Arabic at the right.
+            text.Direction = TextBlockDirection.Auto;
+            text.NaturalAlignment = true;
 
             var hintNode = NewNode(node.transform, "Placeholder");
             hintNode.Width = Sizing.Grow();
@@ -53,6 +57,10 @@ namespace TimboJimbo.UI.TextInput
                 TargetPoint = AttachPoint.LeftTop,
             };
             var hint = NewText(hintNode, placeholder, fontSize, placeholderColour);
+            // It too reads the way its first letter does, and starts at that side, as Android's hint and iOS's placeholder
+            // do: a localised Arabic one at the right.
+            hint.Direction = TextBlockDirection.Auto;
+            hint.NaturalAlignment = true;
             // One line, as wide as the viewport, however long the placeholder.
             hint.WordWrap = true;
             hint.BreakWordsAnywhere = true;

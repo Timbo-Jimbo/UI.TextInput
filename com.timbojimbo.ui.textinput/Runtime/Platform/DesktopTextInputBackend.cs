@@ -84,6 +84,9 @@ namespace TimboJimbo.UI.TextInput
 
         public bool KeyboardVisible => false;
 
+        // A desktop keyboard's layout is the system's business: text with no letter yet reads left to right.
+        public bool KeyboardRightToLeft => false;
+
         public void Attach(int session, in TextInputConfig config, in TextEditingValue value, int serial)
         {
             if (!_attached)
@@ -143,6 +146,11 @@ namespace TimboJimbo.UI.TextInput
             if (!_attached || session != _session) return;
             _pushed = true;
             _pushedComposing = value.IsComposing;
+        }
+
+        // Nothing on desktop asks which way the text reads.
+        public void SetDirection(int session, bool rightToLeft, bool caretRightToLeft)
+        {
         }
 
         public void SetGeometry(int session, Rect field, Rect caret, Rect composing)

@@ -62,16 +62,21 @@ enum
 };
 
 // What the proxy reports besides edits: the return key, and the hardware keyboard's keys that need the field's own
-// layout (a line up or down, the start or end of a line as it wraps) or its own history (undo).
+// layout (left and right as the text shows on screen, by a character, a word or to the line's end; a line up or down)
+// or its own history (undo).
 enum
 {
     TJTIIntentReturn = 0,
-    TJTIIntentMoveUp = 1,
-    TJTIIntentMoveDown = 2,
-    TJTIIntentMoveLineStart = 3,
-    TJTIIntentMoveLineEnd = 4,
-    TJTIIntentUndo = 5,
-    TJTIIntentRedo = 6,
+    TJTIIntentMoveLeft = 1,
+    TJTIIntentMoveRight = 2,
+    TJTIIntentMoveUp = 3,
+    TJTIIntentMoveDown = 4,
+    TJTIIntentMoveWordLeft = 5,
+    TJTIIntentMoveWordRight = 6,
+    TJTIIntentMoveLineLeft = 7,
+    TJTIIntentMoveLineRight = 8,
+    TJTIIntentUndo = 9,
+    TJTIIntentRedo = 10,
 };
 
 // How the keyboard moves to where a keyboard event says it is going.
@@ -135,6 +140,9 @@ typedef struct TJTICallbacks
     // The session was ended by the system: the user dismissed the keyboard, or something else became first responder.
     void (*onEnded)(int32_t session);
     void (*onKeyboard)(const TJTIKeyboardEvent* keyboard);
+    // Whether the keyboard in use writes right to left (Arabic, Hebrew): told when a session's proxy takes the keyboard,
+    // when the user switches keyboards, and when UIKit sets the text's direction to the keyboard's.
+    void (*onKeyboardDirection)(int32_t rightToLeft);
 } TJTICallbacks;
 
 // Registers the callbacks and starts following the keyboard. Returns 0, and does nothing, if the sizes C# passes for the
@@ -157,6 +165,11 @@ void TJTI_SetValue(int32_t session, int32_t serial, const uint16_t* text, int32_
 
 // Where the caret and the composing text are (points, top-left). `hasComposing` is 0 when there is no composing rect.
 void TJTI_SetGeometry(int32_t session, TJTIRect caret, TJTIRect composing, int32_t hasComposing);
+
+// Which way the session's text reads, as C# laid it out. `rightToLeft` is the base writing direction UIKit is told, and
+// which way left and right go when UIKit moves by them itself. `caretRightToLeft`, the direction of the character at the
+// caret, is not used: none of the proxy's answers carries a character's own direction.
+void TJTI_SetDirection(int32_t session, int32_t rightToLeft, int32_t caretRightToLeft);
 
 // Shows the system edit menu by `target` (points, top-left), offering the TJTIAction flags in `actions`.
 void TJTI_ShowEditMenu(int32_t session, TJTIRect target, int32_t actions);

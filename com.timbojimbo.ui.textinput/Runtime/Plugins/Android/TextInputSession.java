@@ -17,6 +17,8 @@ final class TextInputSession
     final RectF field = new RectF();
     final RectF caret = new RectF();
     boolean hasGeometry;
+    // Whether the character at the caret reads right to left, as Unity last said.
+    boolean caretRightToLeft;
 
     // A value pushed while the keyboard was in the middle of a batch edit, put in as the batch ends (only the latest
     // matters, told to the keyboard the strongest way any of those pushed asked for).

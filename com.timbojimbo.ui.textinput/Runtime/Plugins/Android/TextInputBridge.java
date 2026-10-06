@@ -21,13 +21,15 @@ import com.unity3d.player.UnityPlayer;
  *
  * <p>What the keyboard does goes the other way as events, queued on the UI thread under a lock with a counter that
  * rises with each: once a frame C# reads the counter (one call, nothing allocated) and, only when it has moved, drains
- * them all as one string. The keyboard's height and visibility are plain fields C# reads each frame.</p>
+ * them all as one string. The keyboard's height, its visibility and the direction it writes in are plain fields C#
+ * reads each frame.</p>
  *
  * <p>The drained string is a run of events, each a letter, then decimal numbers each ended by one character:
  * <ul>
  * <li>{@code E}session,baseSerial,selectionBase,selectionExtent,composingStart,composingEnd,length{@code :} and then
  * exactly that many UTF-16 units of text: the keyboard changed the value (no composition is -1,-1);</li>
- * <li>{@code I}session,intent,extend{@code ;}: an editing key, intent being a TextEditIntent's value;</li>
+ * <li>{@code I}session,intent,extend{@code ;}: an editing key, intent being one of TextInputConnection's
+ * {@code INTENT_} codes, which C# maps to a TextEditIntent;</li>
  * <li>{@code X}session{@code ;}: the user ended the session (dismissed the keyboard), or another editor took focus.</li>
  * </ul>
  * The text is counted rather than delimited, so it can hold anything. Consecutive edits of a session are merged into
@@ -51,6 +53,7 @@ public final class TextInputBridge
 
     private static volatile float sKeyboardFraction;
     private static volatile boolean sKeyboardVisible;
+    private static volatile boolean sKeyboardRightToLeft;
 
     private TextInputBridge()
     {
@@ -127,6 +130,18 @@ public final class TextInputBridge
     }
 
     /**
+     * Which way the field's text reads, and the character at the caret: the keyboard is told the latter with the
+     * caret's position, as TextView flags its insertion marker. The text's own direction is not needed here.
+     */
+    public static void setDirection(final int session, boolean rightToLeft, final boolean caretRightToLeft)
+    {
+        sMain.post(() ->
+        {
+            if (sView != null) sView.setDirection(session, caretRightToLeft);
+        });
+    }
+
+    /**
      * Shows the edit menu (Android's floating text toolbar) by a target given as fractions of Unity's view (y down),
      * offering {@code actions} (a TextEditActions value).
      */
@@ -182,6 +197,15 @@ public final class TextInputBridge
     }
 
     /**
+     * Whether the keyboard in use writes right to left (its language's script does: Arabic, Hebrew, Persian, Urdu), as
+     * last looked at while a session was under way.
+     */
+    public static boolean keyboardRightToLeft()
+    {
+        return sKeyboardRightToLeft;
+    }
+
+    /**
      * Whether {@link #keyboardFraction} follows the keyboard as it slides, frame by frame (Android 11 and later); before,
      * it steps once the keyboard has moved, and C# eases it.
      */
@@ -210,7 +234,7 @@ public final class TextInputBridge
         }
     }
 
-    /** Queues an editing key for {@code session}: a TextEditIntent's value, with shift held or not. */
+    /** Queues an editing key for {@code session} (a TextInputConnection {@code INTENT_} code), shift held or not. */
     static void queueIntent(int session, int intent, boolean extend)
     {
         synchronized (sLock)
@@ -238,6 +262,12 @@ public final class TextInputBridge
     {
         sKeyboardFraction = fraction;
         sKeyboardVisible = visible;
+    }
+
+    /** Which way the keyboard in use writes, as the view last read it. */
+    static void setKeyboardRightToLeft(boolean rightToLeft)
+    {
+        sKeyboardRightToLeft = rightToLeft;
     }
 
     /**

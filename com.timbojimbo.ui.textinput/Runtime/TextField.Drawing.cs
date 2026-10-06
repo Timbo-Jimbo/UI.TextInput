@@ -369,12 +369,14 @@ namespace TimboJimbo.UI.TextInput
             }
         }
 
+        // The keyboard rose, sank, or now writes the other way, which text with no letter yet follows.
         private void OnKeyboardChanged()
         {
             float height = TextInputSystem.KeyboardHeight;
             if (height > _keyboardHeight)
                 _bringIntoView = true;
             _keyboardHeight = height;
+            FollowKeyboardDirection();
         }
 
         // ── Where it is on screen ────────────────────────────────────────────────
@@ -394,6 +396,18 @@ namespace TimboJimbo.UI.TextInput
             if (_value.IsComposing && TryBounds(_value.Composing, out var bounds))
                 composing = ScreenRect(_text.rectTransform, bounds, camera);
             return true;
+        }
+
+        // Which way the text reads, as last laid out, and the character after the caret (at the text's end, the text's
+        // own way), as Android's TextView flags its insertion marker by.
+        void ITextInputClient.GetDirection(out bool rightToLeft, out bool caretRightToLeft)
+        {
+            rightToLeft = caretRightToLeft = false;
+            if (_text == null) return;
+            _text.EnsureLayout();
+            rightToLeft = _text.IsRightToLeft;
+            int extent = _value.Selection.Extent;
+            caretRightToLeft = extent < _value.Text.Length ? _text.IsCharacterRightToLeft(extent) : rightToLeft;
         }
 
         private Camera CanvasCamera()

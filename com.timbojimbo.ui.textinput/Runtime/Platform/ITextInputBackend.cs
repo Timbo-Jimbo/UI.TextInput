@@ -89,6 +89,12 @@ namespace TimboJimbo.UI.TextInput
         /// <summary>Where the client is: screen pixels, y up. `composing` is empty with no composition.</summary>
         void SetGeometry(int session, Rect field, Rect caret, Rect composing);
 
+        /// <summary>
+        /// Which way the client's text reads (see <see cref="ITextInputClient.GetDirection"/>); sent when it changes, and
+        /// after each attach.
+        /// </summary>
+        void SetDirection(int session, bool rightToLeft, bool caretRightToLeft);
+
         /// <summary>Whether it shows the platform's own edit menu (copy, paste) for <see cref="ShowEditMenu"/>.</summary>
         bool SupportsEditMenu { get; }
 
@@ -109,5 +115,11 @@ namespace TimboJimbo.UI.TextInput
 
         /// <summary>Whether a software keyboard is up (docked or floating).</summary>
         bool KeyboardVisible { get; }
+
+        /// <summary>
+        /// Whether the keyboard in use writes right to left (its language's script does: Arabic, Hebrew, Persian, Urdu),
+        /// as last known: the direction a field's text takes while it has no letter yet, as on iOS.
+        /// </summary>
+        bool KeyboardRightToLeft { get; }
     }
 }

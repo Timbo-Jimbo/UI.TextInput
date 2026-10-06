@@ -73,12 +73,16 @@ namespace TimboJimbo.UI.TextInput
         private enum NativeIntent
         {
             Return = 0,
-            MoveUp = 1,
-            MoveDown = 2,
-            MoveLineStart = 3,
-            MoveLineEnd = 4,
-            Undo = 5,
-            Redo = 6,
+            MoveLeft = 1,
+            MoveRight = 2,
+            MoveUp = 3,
+            MoveDown = 4,
+            MoveWordLeft = 5,
+            MoveWordRight = 6,
+            MoveLineLeft = 7,
+            MoveLineRight = 8,
+            Undo = 9,
+            Redo = 10,
         }
 
         private enum NativeCurve
@@ -136,6 +140,7 @@ namespace TimboJimbo.UI.TextInput
             public IntPtr OnIntent;
             public IntPtr OnEnded;
             public IntPtr OnKeyboard;
+            public IntPtr OnKeyboardDirection;
         }
 
         private delegate void EditCallback(int session, int baseSerial, IntPtr text, int length, int selectionBase,
@@ -146,6 +151,8 @@ namespace TimboJimbo.UI.TextInput
         private delegate void EndedCallback(int session);
 
         private delegate void KeyboardCallback(IntPtr keyboard);
+
+        private delegate void KeyboardDirectionCallback(int rightToLeft);
 
         [DllImport("__Internal")]
         private static extern int TJTI_Init(NativeCallbacks* callbacks, int callbacksSize, int configSize, int keyboardEventSize);
@@ -168,6 +175,9 @@ namespace TimboJimbo.UI.TextInput
         private static extern void TJTI_SetGeometry(int session, NativeRect caret, NativeRect composing, int hasComposing);
 
         [DllImport("__Internal")]
+        private static extern void TJTI_SetDirection(int session, int rightToLeft, int caretRightToLeft);
+
+        [DllImport("__Internal")]
         private static extern void TJTI_ShowEditMenu(int session, NativeRect target, int actions);
 
         [DllImport("__Internal")]
@@ -185,11 +195,16 @@ namespace TimboJimbo.UI.TextInput
         private static readonly List<TextInputEvent> s_events = new();
         private static readonly List<NativeKeyboardEvent> s_keyboardEvents = new();
 
+        // Which way the keyboard in use writes, as native code last said: when a session's proxy takes the keyboard, when
+        // the user switches keyboards, and when UIKit sets the text's direction to the keyboard's.
+        private static bool s_keyboardRightToLeft;
+
         // Held for as long as native code may call them.
         private static readonly EditCallback s_onEdit = OnEdit;
         private static readonly IntentCallback s_onIntent = OnIntent;
         private static readonly EndedCallback s_onEnded = OnEnded;
         private static readonly KeyboardCallback s_onKeyboard = OnKeyboard;
+        private static readonly KeyboardDirectionCallback s_onKeyboardDirection = OnKeyboardDirection;
 
         [MonoPInvokeCallback(typeof(EditCallback))]
         private static void OnEdit(int session, int baseSerial, IntPtr text, int length, int selectionBase, int selectionExtent,
@@ -208,10 +223,14 @@ namespace TimboJimbo.UI.TextInput
             TextEditIntent? textIntent = (NativeIntent)intent switch
             {
                 NativeIntent.Return => TextEditIntent.Return,
+                NativeIntent.MoveLeft => TextEditIntent.MoveLeft,
+                NativeIntent.MoveRight => TextEditIntent.MoveRight,
                 NativeIntent.MoveUp => TextEditIntent.MoveUp,
                 NativeIntent.MoveDown => TextEditIntent.MoveDown,
-                NativeIntent.MoveLineStart => TextEditIntent.MoveLineStart,
-                NativeIntent.MoveLineEnd => TextEditIntent.MoveLineEnd,
+                NativeIntent.MoveWordLeft => TextEditIntent.MoveWordLeft,
+                NativeIntent.MoveWordRight => TextEditIntent.MoveWordRight,
+                NativeIntent.MoveLineLeft => TextEditIntent.MoveLineLeft,
+                NativeIntent.MoveLineRight => TextEditIntent.MoveLineRight,
                 NativeIntent.Undo => TextEditIntent.Undo,
                 NativeIntent.Redo => TextEditIntent.Redo,
                 _ => (TextEditIntent?)null,
@@ -225,6 +244,9 @@ namespace TimboJimbo.UI.TextInput
 
         [MonoPInvokeCallback(typeof(KeyboardCallback))]
         private static void OnKeyboard(IntPtr keyboard) => s_keyboardEvents.Add(*(NativeKeyboardEvent*)keyboard.ToPointer());
+
+        [MonoPInvokeCallback(typeof(KeyboardDirectionCallback))]
+        private static void OnKeyboardDirection(int rightToLeft) => s_keyboardRightToLeft = rightToLeft != 0;
 
         // ── The keyboard ─────────────────────────────────────────────────────────
 
@@ -249,6 +271,7 @@ namespace TimboJimbo.UI.TextInput
                 OnIntent = Marshal.GetFunctionPointerForDelegate(s_onIntent),
                 OnEnded = Marshal.GetFunctionPointerForDelegate(s_onEnded),
                 OnKeyboard = Marshal.GetFunctionPointerForDelegate(s_onKeyboard),
+                OnKeyboardDirection = Marshal.GetFunctionPointerForDelegate(s_onKeyboardDirection),
             };
             if (TJTI_Init(&callbacks, sizeof(NativeCallbacks), sizeof(NativeConfig), sizeof(NativeKeyboardEvent)) == 0)
                 Debug.LogError("TextInputSystem: the iOS text input plugin's structs differ from IosTextInputBackend's; the keyboard will not work.");
@@ -259,6 +282,11 @@ namespace TimboJimbo.UI.TextInput
         public float KeyboardHeight => _keyboardHeight;
 
         public bool KeyboardVisible => _keyboardVisible;
+
+        public bool KeyboardRightToLeft => s_keyboardRightToLeft;
+
+        public void SetDirection(int session, bool rightToLeft, bool caretRightToLeft) =>
+            TJTI_SetDirection(session, rightToLeft ? 1 : 0, caretRightToLeft ? 1 : 0);
 
         public void Attach(int session, in TextInputConfig config, in TextEditingValue value, int serial)
         {

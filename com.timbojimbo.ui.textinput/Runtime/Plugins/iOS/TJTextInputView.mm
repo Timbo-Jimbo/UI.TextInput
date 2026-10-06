@@ -63,6 +63,20 @@ static NSRange TJRangeOf(UITextRange* range)
     return [range isKindOfClass:TJTextRange.class] ? ((TJTextRange*)range).range : TJNoRange;
 }
 
+// `direction` in the text's own order. UIKit also asks in directions on screen: up is backward and down forward, and left
+// and right go by which way the text reads, so that in text that reads right to left, left is forward.
+static UITextStorageDirection TJStorageDirection(UITextDirection direction, BOOL rightToLeft)
+{
+    switch (direction)
+    {
+        case UITextLayoutDirectionLeft: return rightToLeft ? UITextStorageDirectionForward : UITextStorageDirectionBackward;
+        case UITextLayoutDirectionRight: return rightToLeft ? UITextStorageDirectionBackward : UITextStorageDirectionForward;
+        case UITextLayoutDirectionUp: return UITextStorageDirectionBackward;
+        case UITextLayoutDirectionDown: return UITextStorageDirectionForward;
+        default: return (UITextStorageDirection)direction;
+    }
+}
+
 #pragma mark - Grapheme clusters and lines
 
 // The end of the cluster at `index`.
@@ -314,7 +328,9 @@ static UITextContentType TJContentTypeFor(int32_t content)
 
 // UIKit's string tokenizer, but with lines as the text's own lines: UITextInputStringTokenizer does not know lines
 // (Apple: subclasses handle layout-dependent granularities; FlutterTokenizer does the same). Lines wrapped by the
-// field's layout are the field's business: the hardware keyboard's line keys come to it as intents.
+// field's layout are the field's business: the hardware keyboard's line keys come to it as intents. Nor does it know
+// which way the text reads, so a direction on screen is turned into the text's own order before it is asked, as Apple
+// tells subclasses to.
 @interface TJTokenizer : UITextInputStringTokenizer
 - (instancetype)initWithView:(TJTextInputView*)view;
 @end
@@ -332,10 +348,35 @@ static UITextContentType TJContentTypeFor(int32_t content)
     return self;
 }
 
+- (UITextDirection)tj_storageDirection:(UITextDirection)direction
+{
+    return TJStorageDirection(direction, _view.rightToLeft);
+}
+
+- (UITextPosition*)positionFromPosition:(UITextPosition*)position
+                             toBoundary:(UITextGranularity)granularity
+                            inDirection:(UITextDirection)direction
+{
+    return [super positionFromPosition:position toBoundary:granularity inDirection:[self tj_storageDirection:direction]];
+}
+
+- (BOOL)isPosition:(UITextPosition*)position atBoundary:(UITextGranularity)granularity inDirection:(UITextDirection)direction
+{
+    return [super isPosition:position atBoundary:granularity inDirection:[self tj_storageDirection:direction]];
+}
+
+- (BOOL)isPosition:(UITextPosition*)position
+    withinTextUnit:(UITextGranularity)granularity
+       inDirection:(UITextDirection)direction
+{
+    return [super isPosition:position withinTextUnit:granularity inDirection:[self tj_storageDirection:direction]];
+}
+
 - (UITextRange*)rangeEnclosingPosition:(UITextPosition*)position
                        withGranularity:(UITextGranularity)granularity
                            inDirection:(UITextDirection)direction
 {
+    direction = [self tj_storageDirection:direction];
     if (granularity != UITextGranularityLine)
         return [super rangeEnclosingPosition:position withGranularity:granularity inDirection:direction];
 
@@ -704,9 +745,12 @@ static UITextContentType TJContentTypeFor(int32_t content)
     range = TJSnapToClusters(_text, TJClamp(range, _text.length));
     if (NSEqualRanges(range, _selection))
         return;
+    // UIKit's range has no direction: a selection that keeps its base keeps its direction, so that one UIKit grew
+    // backwards (its base now at the end) is reported to C# as it grew.
+    NSUInteger base = _selectionReversed ? NSMaxRange(_selection) : _selection.location;
     [self tj_beginEdit];
     _selection = range;
-    _selectionReversed = NO;
+    _selectionReversed = range.length > 0 && base == NSMaxRange(range);
     _edited = YES;
     [self tj_endEdit];
 }
@@ -781,6 +825,9 @@ static UITextContentType TJContentTypeFor(int32_t content)
     return [TJTextPosition positionWithIndex:(NSUInteger)moved affinity:UITextStorageDirectionForward];
 }
 
+// Left and right are directions on screen. Where UIKit moves by them itself they go by which way the whole text reads:
+// in text that reads right to left, left is on through the text. The arrow keys come to C# as intents instead, and go
+// where the layout shows (in text that reads both ways, only the layout knows).
 - (UITextPosition*)positionFromPosition:(UITextPosition*)position
                             inDirection:(UITextLayoutDirection)direction
                                  offset:(NSInteger)offset
@@ -791,8 +838,13 @@ static UITextContentType TJContentTypeFor(int32_t content)
     NSUInteger moved = TJClampIndex(index, _text.length);
     switch (direction)
     {
-        case UITextLayoutDirectionLeft: moved = [self tj_index:moved movedByClusters:-offset]; break;
-        case UITextLayoutDirectionRight: moved = [self tj_index:moved movedByClusters:offset]; break;
+        case UITextLayoutDirectionLeft:
+        case UITextLayoutDirectionRight:
+        {
+            BOOL forward = TJStorageDirection(direction, _rightToLeft) == UITextStorageDirectionForward;
+            moved = [self tj_index:moved movedByClusters:forward ? offset : -offset];
+            break;
+        }
         case UITextLayoutDirectionUp: moved = [self tj_index:moved movedByLines:-offset]; break;
         case UITextLayoutDirectionDown: moved = [self tj_index:moved movedByLines:offset]; break;
     }
@@ -882,7 +934,7 @@ static UITextContentType TJContentTypeFor(int32_t content)
     NSRange textRange = TJRangeOf(range);
     if (!TJHasRange(textRange))
         return nil;
-    BOOL backward = direction == UITextLayoutDirectionLeft || direction == UITextLayoutDirectionUp;
+    BOOL backward = TJStorageDirection(direction, _rightToLeft) == UITextStorageDirectionBackward;
     return backward ? [TJTextPosition positionWithIndex:textRange.location affinity:UITextStorageDirectionForward]
                     : [TJTextPosition positionWithIndex:NSMaxRange(textRange) affinity:UITextStorageDirectionBackward];
 }
@@ -893,7 +945,7 @@ static UITextContentType TJContentTypeFor(int32_t content)
     if (index < 0)
         return nil;
     NSUInteger at = TJClampIndex(index, _text.length);
-    if (direction == UITextLayoutDirectionLeft || direction == UITextLayoutDirectionUp)
+    if (TJStorageDirection(direction, _rightToLeft) == UITextStorageDirectionBackward)
     {
         NSUInteger start = TJPreviousStop(_text, at);
         return [TJTextRange rangeWithNSRange:NSMakeRange(start, at - start)];
@@ -901,13 +953,19 @@ static UITextContentType TJContentTypeFor(int32_t content)
     return [TJTextRange rangeWithNSRange:NSMakeRange(at, TJNextStop(_text, at) - at)];
 }
 
+// The whole text reads one way, as C# laid it out (as HTML's dir=auto has it, rather than paragraph by paragraph).
 - (NSWritingDirection)baseWritingDirectionForPosition:(UITextPosition*)position inDirection:(UITextStorageDirection)direction
 {
-    return NSWritingDirectionNatural;
+    return _rightToLeft ? NSWritingDirectionRightToLeft : NSWritingDirectionLeftToRight;
 }
 
+// UIKit sets the text's direction to the keyboard's as the keyboard changes (WebKit bug 187554). Which way the text
+// reads is C#'s to lay out: it is told the keyboard's direction, which a field with no letter yet takes. Natural says
+// nothing about the keyboard.
 - (void)setBaseWritingDirection:(NSWritingDirection)writingDirection forRange:(UITextRange*)range
 {
+    if (_active && writingDirection != NSWritingDirectionNatural)
+        TJTIReportKeyboardDirection(writingDirection == NSWritingDirectionRightToLeft);
 }
 
 #pragma mark UITextInput: geometry
@@ -988,6 +1046,28 @@ static UITextContentType TJContentTypeFor(int32_t content)
     return _active;
 }
 
+- (BOOL)becomeFirstResponder
+{
+    BOOL became = [super becomeFirstResponder];
+    // The keyboard comes up as the one last used: C# hears which way it writes.
+    if (became)
+        [self reportInputMode];
+    return became;
+}
+
+// Dictation's input mode (whose language is "dictation") writes no way. One without a language, or whose language has
+// no known left-to-right or right-to-left direction (unknown, or written vertically), says nothing, as WebKit has it.
+- (void)reportInputMode
+{
+    NSString* language = self.textInputMode.primaryLanguage;
+    if (!_active || language.length == 0 || [language isEqualToString:@"dictation"])
+        return;
+    NSLocaleLanguageDirection direction = [NSLocale characterDirectionForLanguage:language];
+    if (direction != NSLocaleLanguageDirectionRightToLeft && direction != NSLocaleLanguageDirectionLeftToRight)
+        return;
+    TJTIReportKeyboardDirection(direction == NSLocaleLanguageDirectionRightToLeft);
+}
+
 - (BOOL)resignFirstResponder
 {
     BOOL resigned = [super resignFirstResponder];
@@ -1051,13 +1131,14 @@ static UITextContentType TJContentTypeFor(int32_t content)
 #pragma mark Hardware keyboard
 
 // Hardware keys taken ahead of UIKit's text system. Those that need the field's own layout or history go to C# as
-// intents: a line up or down (keeping the field's goal x across wrapped lines), the start or end of a line as it wraps,
-// undo and redo. A key typed in the same frame as one of these still goes into the mirror as it was, and is lost when
-// C#'s answer to the intent replaces it. So what the mirror can do itself is done here: Cmd and Up or Down (the start or
-// end of the text), and Shift and Return (a new line in a multi-line field whatever the return key does, as a chat
-// composer wants; in a single line, the return key, as in UITextField). The rest (typing, left and right, option-arrows
-// by word, the clipboard shortcuts) stay with UIKit's text system, which works them on the mirror. While something is
-// being composed the IME has these keys.
+// intents: left and right (to the place beside the caret on screen, which in text that reads both ways only the layout
+// knows; by a word with Option, to the line's left or right end with Cmd), a line up or down (keeping the field's goal x
+// across wrapped lines), undo and redo. A key typed in the same frame as one of these still goes into the mirror as it
+// was, and is lost when C#'s answer to the intent replaces it. So what the mirror can do itself is done here: Cmd and Up
+// or Down (the start or end of the text), and Shift and Return (a new line in a multi-line field whatever the return key
+// does, as a chat composer wants; in a single line, the return key, as in UITextField). The rest (typing, the clipboard
+// shortcuts) stay with UIKit's text system, which works them on the mirror. While something is being composed the IME
+// has these keys.
 - (NSArray<UIKeyCommand*>*)keyCommands
 {
     if (!_active || TJHasRange(_marked))
@@ -1070,6 +1151,9 @@ static UITextContentType TJContentTypeFor(int32_t content)
             UIKeyCommand* command = [UIKeyCommand keyCommandWithInput:input modifierFlags:flags action:@selector(tj_keyCommand:)];
             // From iOS 15 the text system sees keys before key commands unless they ask for priority.
             command.wantsPriorityOverSystemBehavior = YES;
+            // In a right-to-left interface UIKit would swap the left and right arrows; the field's moves already go the
+            // way each arrow points on screen.
+            command.allowsAutomaticMirroring = NO;
             [list addObject:command];
         };
         for (NSString* input in @[UIKeyInputUpArrow, UIKeyInputDownArrow])
@@ -1081,6 +1165,10 @@ static UITextContentType TJContentTypeFor(int32_t content)
         }
         for (NSString* input in @[UIKeyInputLeftArrow, UIKeyInputRightArrow])
         {
+            add(input, 0);
+            add(input, UIKeyModifierShift);
+            add(input, UIKeyModifierAlternate);
+            add(input, UIKeyModifierAlternate | UIKeyModifierShift);
             add(input, UIKeyModifierCommand);
             add(input, UIKeyModifierCommand | UIKeyModifierShift);
         }
@@ -1099,7 +1187,9 @@ static UITextContentType TJContentTypeFor(int32_t content)
     NSString* input = command.input;
     BOOL shift = (command.modifierFlags & UIKeyModifierShift) != 0;
     BOOL commandKey = (command.modifierFlags & UIKeyModifierCommand) != 0;
+    BOOL option = (command.modifierFlags & UIKeyModifierAlternate) != 0;
     BOOL up = [input isEqualToString:UIKeyInputUpArrow];
+    BOOL left = [input isEqualToString:UIKeyInputLeftArrow];
     if (up || [input isEqualToString:UIKeyInputDownArrow])
     {
         if (!commandKey)
@@ -1112,10 +1202,15 @@ static UITextContentType TJContentTypeFor(int32_t content)
         NSUInteger base = !shift ? to : _selectionReversed ? NSMaxRange(_selection) : _selection.location;
         [self tj_change:_text selectionBase:base selectionExtent:to];
     }
-    else if ([input isEqualToString:UIKeyInputLeftArrow])
-        TJTIReportIntent(_session, TJTIIntentMoveLineStart, shift);
-    else if ([input isEqualToString:UIKeyInputRightArrow])
-        TJTIReportIntent(_session, TJTIIntentMoveLineEnd, shift);
+    else if (left || [input isEqualToString:UIKeyInputRightArrow])
+    {
+        int32_t intent = left ? TJTIIntentMoveLeft : TJTIIntentMoveRight;
+        if (commandKey)
+            intent = left ? TJTIIntentMoveLineLeft : TJTIIntentMoveLineRight;
+        else if (option)
+            intent = left ? TJTIIntentMoveWordLeft : TJTIIntentMoveWordRight;
+        TJTIReportIntent(_session, intent, shift);
+    }
     else if ([input isEqualToString:@"z"])
         TJTIReportIntent(_session, shift ? TJTIIntentRedo : TJTIIntentUndo, NO);
     else if ([input isEqualToString:@"\r"])

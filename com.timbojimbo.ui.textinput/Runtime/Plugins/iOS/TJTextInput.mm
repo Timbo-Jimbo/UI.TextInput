@@ -149,6 +149,15 @@ void TJTIReportKeyboard(const TJTIKeyboardEvent* keyboard)
     s_callbackDepth--;
 }
 
+void TJTIReportKeyboardDirection(BOOL rightToLeft)
+{
+    if (!s_initialised)
+        return;
+    s_callbackDepth++;
+    s_callbacks.onKeyboardDirection(rightToLeft ? 1 : 0);
+    s_callbackDepth--;
+}
+
 #pragma mark - Sessions
 
 // `proxy`'s session is over: it stops reporting at once, and gives the keyboard up at the end of this run loop turn
@@ -279,6 +288,13 @@ extern "C" void TJTI_SetGeometry(int32_t session, TJTIRect caret, TJTIRect compo
 {
     TJRunInOrder(^{
         [TJViewFor(session) setCaret:TJCGRect(caret) composing:TJCGRect(composing) hasComposing:hasComposing != 0];
+    });
+}
+
+extern "C" void TJTI_SetDirection(int32_t session, int32_t rightToLeft, int32_t caretRightToLeft)
+{
+    TJRunInOrder(^{
+        [TJViewFor(session) setRightToLeft:rightToLeft != 0];
     });
 }
 

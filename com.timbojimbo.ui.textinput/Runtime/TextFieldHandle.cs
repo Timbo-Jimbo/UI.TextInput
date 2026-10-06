@@ -45,8 +45,9 @@ namespace TimboJimbo.UI.TextInput
         }
 
         /// <summary>
-        /// Stands it on <paramref name="caret"/>, the caret rect of the selection end it stands for, in the space of the
-        /// container it is in (its text's), drawn in <paramref name="colour"/>.
+        /// Stands it on <paramref name="caret"/>, a caret-shaped rect at the edge of the selection it stands for (beside
+        /// the first or the last character selected), in the space of the container it is in (its text's), drawn in
+        /// <paramref name="colour"/>.
         /// </summary>
         internal void Place(Rect caret, Color colour)
         {
